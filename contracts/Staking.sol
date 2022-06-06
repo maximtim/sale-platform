@@ -61,62 +61,60 @@ contract Staking is IDepositInfo {
         require(amount > 0, "Stake == 0");
         tokenStake.transferFrom(msg.sender, address(this), amount);
 
-        Stake storage stakeStorage = stakes[msg.sender];
+        Stake storage stake0 = stakes[msg.sender];
 
-        // разобраться с оптмизацией кода
+        uint tokenAmount = stake0.tokenAmount;
+        uint rewardsCnt = stake0.rewardsCount;
 
-        if (stakeStorage.tokenAmount > 0) {
-            (uint256 reward, uint256 rewardsCount) = calculateReward(
-                stakeStorage
-            );
+        if (tokenAmount > 0) {
+            (uint256 reward, uint256 rewardsCount) = calculateReward(tokenAmount, stake0.creationTime, stake0.reward, rewardsCnt);
 
-            if (rewardsCount > stakeStorage.rewardsCount) {
-                stakeStorage.reward = reward;
+            if (rewardsCount > rewardsCnt) {
+                stake0.reward = reward;
             }
         }
 
-        stakeStorage.creationTime = block.timestamp;
-        stakeStorage.rewardsCount = 0;
-        stakeStorage.tokenAmount += amount;
+        stake0.creationTime = block.timestamp;
+        stake0.rewardsCount = 0;
+        stake0.tokenAmount += amount;
     }
 
     function claim() external {
-        Stake storage stakeStorage = stakes[msg.sender];
-        Stake memory stakeMemory = stakeStorage;
-        require(stakeMemory.creationTime > 0, "Stake was not created");
+        Stake storage stake0 = stakes[msg.sender];
+        uint256 creationTime = stake0.creationTime;
+        require(creationTime > 0, "Stake was not created");
 
-        (uint256 reward, uint256 rewardsCount) = calculateReward(stakeMemory);
+        (uint256 reward, uint256 rewardsCount) = calculateReward(stake0.tokenAmount, creationTime, stake0.reward, stake0.rewardsCount);
 
         require(reward > 0, "No reward to claim");
-        stakeStorage.reward = 0;
-        stakeStorage.rewardsCount = rewardsCount;
+        stake0.reward = 0;
+        stake0.rewardsCount = rewardsCount;
 
         tokenRewards.mint(msg.sender, reward);
     }
 
     function unstake() external {
-        Stake storage stakeStorage = stakes[msg.sender];
-        Stake memory stakeMemory = stakeStorage;
-        uint256 amount = stakeMemory.tokenAmount;
+        Stake storage stake0 = stakes[msg.sender];
+        uint256 amount = stake0.tokenAmount;
+        uint256 creationTime = stake0.creationTime;
         require(amount > 0, "Nothing to unstake");
         require(
-            stakeMemory.creationTime + frozenPeriod < block.timestamp,
+            creationTime + frozenPeriod < block.timestamp,
             "Frozen period is not over yet"
         );
         require(dao.isDepositLocked(msg.sender), "Deposit is locked by DAO");
 
-        _updateReward(stakeStorage, stakeMemory);
+        _updateReward(stake0, stake0.tokenAmount, creationTime, stake0.reward, stake0.rewardsCount);
 
-        stakeStorage.tokenAmount = 0;
+        stake0.tokenAmount = 0;
         tokenStake.transfer(msg.sender, amount);
     }
 
     ////////////////////////////////////////////////////////////////////////////////
 
     function update() external {
-        Stake storage stakeStorage = stakes[msg.sender];
-        Stake memory stakeMemory = stakeStorage;
-        _updateReward(stakeStorage, stakeMemory);
+        Stake storage stake0 = stakes[msg.sender];
+        _updateReward(stake0, stake0.tokenAmount, stake0.creationTime, stake0.reward, stake0.rewardsCount);
     }
 
     function changeFrozenPeriod(uint256 frozenPeriod_) external only(address(dao)) {
@@ -133,32 +131,41 @@ contract Staking is IDepositInfo {
 
     ////////////////////////////////////////////////////////////////////////////////
 
-    function calculateReward(Stake memory stakeMemory)
+    function calculateReward(
+        uint256 tokenAmount,
+        uint256 creationTime,
+        uint256 reward,
+        uint256 rewardsCount)
         public
         view
         returns (uint256 fullReward, uint256 fullRewardsCount)
     {
-        uint256 newRewardsCount = (block.timestamp - stakeMemory.creationTime) /
+        uint256 newRewardsCount = (block.timestamp - creationTime) /
             rewardPeriod;
-        uint256 oldCount = stakeMemory.rewardsCount;
+        uint256 oldCount = rewardsCount;
 
         fullReward =
-            stakeMemory.reward +
+            reward +
             ((newRewardsCount - oldCount) *
                 rewardFor1TokenUnit *
-                stakeMemory.tokenAmount) /
+                tokenAmount) /
             (10**tokenRewardDecimals);
         fullRewardsCount = newRewardsCount;
     }
 
-    function _updateReward(Stake storage stakeStorage, Stake memory stakeMemory)
+    function _updateReward(
+        Stake storage stakeStorage, 
+        uint256 tokenAmount,
+        uint256 creationTime,
+        uint256 reward,
+        uint256 rewardsCount)
         private
     {
-        (uint256 reward, uint256 rewardsCount) = calculateReward(stakeMemory);
+        (uint256 newReward, uint256 newRewardsCount) = calculateReward(tokenAmount, creationTime, reward, rewardsCount);
 
-        if (rewardsCount > stakeMemory.rewardsCount) {
-            stakeStorage.reward = reward;
-            stakeStorage.rewardsCount = rewardsCount;
+        if (newRewardsCount > rewardsCount) {
+            stakeStorage.reward = newReward;
+            stakeStorage.rewardsCount = newRewardsCount;
         }
     }
 

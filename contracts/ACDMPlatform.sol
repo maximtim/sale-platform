@@ -153,7 +153,6 @@ contract ACDMPlatform {
 
     function redeemOrder(uint orderId) external payable roundIsTrade roundIsGoing {
         Order storage order = orders[orderId];
-        // address owner = order.owner;
         uint amountOrderToken = order.amountToken;
         require(amountOrderToken > 0, "Order doesnt exist");
 
@@ -191,7 +190,6 @@ contract ACDMPlatform {
 
     function payReferrer(address referrer, uint referrerPayment) internal returns (uint amountPaid) {
         if (referrer != address(0)){
-            //uint referrerPayment = calcPayment(amountWei, fracture);
             if (referrerPayment > 0){
                 payable(referrer).transfer(referrerPayment);
                 return referrerPayment;
@@ -239,7 +237,7 @@ contract ACDMPlatform {
 
         uint[] memory amountsOut = uniswap.getAmountsOut(bank, path);
         uint amountOutMin = amountsOut[1] * (100 - slippagePercent) / 100;
-        
+
         uint[] memory amounts = uniswap.swapExactETHForTokens{value: bank}(amountOutMin, path, address(this), deadline);
         token_.burn(amounts[1]);
     }
