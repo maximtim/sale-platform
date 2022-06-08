@@ -6,18 +6,11 @@ import "@nomiclabs/hardhat-waffle";
 import "@typechain/hardhat";
 import "hardhat-gas-reporter";
 import "solidity-coverage";
+import "hardhat-test-utils";
+import "./lib/helpers";
+import "./tasks";
 
 dotenv.config();
-
-// This is a sample Hardhat task. To learn how to create your own go to
-// https://hardhat.org/guides/create-task.html
-task("accounts", "Prints the list of accounts", async (taskArgs, hre) => {
-  const accounts = await hre.ethers.getSigners();
-
-  for (const account of accounts) {
-    console.log(account.address);
-  }
-});
 
 // You need to export an object to set up your config
 // Go to https://hardhat.org/config/ to learn more
@@ -25,10 +18,17 @@ task("accounts", "Prints the list of accounts", async (taskArgs, hre) => {
 const config: HardhatUserConfig = {
   solidity: "0.8.4",
   networks: {
-    ropsten: {
-      url: process.env.ROPSTEN_URL || "",
-      accounts:
-        process.env.PRIVATE_KEY !== undefined ? [process.env.PRIVATE_KEY] : [],
+    hardhat: {
+      forking: {
+        url: process.env.MAINNET_PROJECT_URL || "",
+        blockNumber: 14920000, 
+      }
+    },
+    rinkeby: {
+      url: process.env.PROJECT_URL,
+      accounts: JSON.parse(process.env.PRIVATE_KEYS_LIST !== undefined ? process.env.PRIVATE_KEYS_LIST : ""),
+      gas: 5000_000,
+      gasPrice: 8000000000
     },
   },
   gasReporter: {

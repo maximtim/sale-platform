@@ -5,13 +5,22 @@ import "./Interfaces/IERC20MintBurn.sol";
 import "./Interfaces/IUniswapV2Router01.sol";
 
 contract ACDMPlatform {
-    IERC20MintBurn token;
-    uint roundDuration;
+    IERC20MintBurn public token;
+    uint public roundDuration;
     
-    uint currentSalePriceWei = 10_000_000 wei; // 0,00001 ETH = 10^13 Wei / 1 ACDM = 10^7 Wei / 0,000001 ACDM (decimals=6)
+    uint public currentSalePriceWei = 10_000_000 wei; // 0,00001 ETH = 10^13 Wei / 1 ACDM = 10^7 Wei / 0,000001 ACDM (decimals=6)
     uint currentSaleVolumeWei = 1 ether;
-    uint currentRoundEnd;
-    bool currentRoundIsSale;
+    uint public currentRoundEnd;
+    uint public currentRound; // 0 = None; 1 = Sale; 2 = Trade
+
+    event SaleRoundStarted(uint salePrice, uint saleVolume);
+    event TradeRoundStarted();
+
+    event TokenBought(address indexed buyer, uint amountToken);
+
+    event OrderAdded(uint indexed id, address indexed owner, uint amountToken, uint priceWei);
+    event OrderRemoved(uint indexed id);
+    event OrderRedeemed(uint indexed id, uint amountToken);
 
     struct Order {
         uint amountToken;
@@ -19,15 +28,15 @@ contract ACDMPlatform {
         address owner;
     }
 
-    mapping (uint => Order) orders;
+    mapping (uint => Order) public orders;
     uint orderIdFactory;
 
-    mapping (address => address) referrers;
-    uint fractureDenominator = 100_000;
-    uint referrer1SaleFracture = 5_000;
-    uint referrer2SaleFracture = 3_000;
-    uint referrer1TradeFracture = 2_500;
-    uint referrer2TradeFracture = 2_500;
+    mapping (address => address) public referrers;
+    uint public fractureDenominator = 100_000;
+    uint public referrer1SaleFracture = 5_000;
+    uint public referrer2SaleFracture = 3_000;
+    uint public referrer1TradeFracture = 2_500;
+    uint public referrer2TradeFracture = 2_500;
 
     uint public tradeCommissionBank;
 
@@ -36,36 +45,47 @@ contract ACDMPlatform {
 
     constructor(
         IERC20MintBurn token_,
-        uint roundDuration_, 
-        uint initialSalePriceWei_,
-        uint initialSaleVolumeWei_) {
+        uint roundDuration_) {
         
         token = token_;
         roundDuration = roundDuration_;
-        currentSalePriceWei = initialSalePriceWei_;  // 0,00001 ETH = 10^13 Wei / 1 ACDM = 10^7 Wei / 0,000001 ACDM
-        currentSaleVolumeWei = initialSaleVolumeWei_; // 1 ETH = 10^18 Wei
         owner = msg.sender;
     }
 
     ////////////////////////////////////////////
 
     modifier roundIsSale {
-        require(currentRoundIsSale, "Current round must be sale");
+        require(currentRound == 1, "Current round must be sale");
         _;
     }
 
     modifier roundIsTrade {
-        require(currentRoundIsSale == false, "Current round must be trade");
+        require(currentRound == 2, "Current round must be trade");
         _;
     }
 
-    modifier roundIsGoing {
+    modifier roundIsTradeOrNone {
+        require(currentRound != 1, "Current round must be trade or none");
+        _;
+    }
+
+    modifier tradeRoundIsGoing {
         require(block.timestamp <= currentRoundEnd, "Round already ended");
         _;
     }
 
-    modifier roundEnded {
+    modifier tradeRoundEnded {
         require(block.timestamp > currentRoundEnd, "Current round is still going");
+        _;
+    }
+
+    modifier saleRoundIsGoing {
+        require(block.timestamp <= currentRoundEnd && currentSaleVolumeWei > 0, "Round already ended");
+        _;
+    }
+
+    modifier saleRoundEnded {
+        require(block.timestamp > currentRoundEnd || currentSaleVolumeWei == 0, "Current round is still going");
         _;
     }
 
@@ -86,19 +106,26 @@ contract ACDMPlatform {
 
     ////////////////////////////////////////////
 
-    function startSaleRound() external only(owner) roundIsTrade roundEnded {
-        currentRoundIsSale = true;
+    function startSaleRound() external only(owner) roundIsTradeOrNone tradeRoundEnded {
+
+        if (currentRound > 0) {
+            currentSalePriceWei = currentSalePriceWei/100*103 + 4*10**13;
+        }
+
+        currentRound = 1;
         currentRoundEnd = block.timestamp + roundDuration;
 
-        currentSalePriceWei = currentSalePriceWei/100*103 + 4*10**13;
+        emit SaleRoundStarted(currentSalePriceWei, currentSaleVolumeWei);
     }
 
-    function buyACDM() external payable roundIsSale roundIsGoing {
+    function buyACDM() external payable roundIsSale saleRoundIsGoing {
         uint saleVolume = currentSaleVolumeWei;
         uint remainder = msg.value > saleVolume ? msg.value - saleVolume : 0;
         uint amountWei = msg.value - remainder;
         uint amountToken = amountWei / currentSalePriceWei;
-        require(amountToken > 0, "Not enough payment to buy token");
+        require(amountToken > 0, "Not enough payment to buy token or token is sold out");
+
+        emit TokenBought(msg.sender, amountToken);
 
         currentSaleVolumeWei -= amountWei;
         token.mint(msg.sender, amountToken);
@@ -115,31 +142,37 @@ contract ACDMPlatform {
 
     ////////////////////////////////////////////
 
-    function startTradeRound() external only(owner) roundIsSale roundEnded {
+    function startTradeRound() external only(owner) roundIsSale saleRoundEnded {
 
-        currentRoundIsSale = false;
+        currentRound = 2;
         currentRoundEnd = block.timestamp + roundDuration;
 
-        uint unsoldTokenAmount = currentSaleVolumeWei / currentSalePriceWei;
+        // uint unsoldTokenAmount = currentSaleVolumeWei / currentSalePriceWei;
         currentSaleVolumeWei = 0;
 
-        if (unsoldTokenAmount > 0) {
-            token.burn(unsoldTokenAmount);
-            // currentSaleVolumeWei -= currentSalePriceWei * unsoldTokenAmount; // remainder
-        }
+        emit TradeRoundStarted();
+
+        // we skip burning since we only minted amount of tokens that was bought 
+        // if (unsoldTokenAmount > 0) {
+        //     token.burn(unsoldTokenAmount);
+        //     // currentSaleVolumeWei -= currentSalePriceWei * unsoldTokenAmount; // remainder
+        // }
     }
 
-    function addOrder(uint tokenAmount, uint price) external roundIsTrade roundIsGoing {
+    function addOrder(uint tokenAmount, uint price) external roundIsTrade tradeRoundIsGoing {
         require(tokenAmount > 0, "Token amount should be > 0");
         require(price > 0, "Price should be > 0");
 
         orderIdFactory++;
-        orders[orderIdFactory] = Order(tokenAmount, price, msg.sender);
+        uint id = orderIdFactory;
+        orders[id] = Order(tokenAmount, price, msg.sender);
+
+        emit OrderAdded(id, msg.sender, tokenAmount, price);
 
         token.transferFrom(msg.sender, address(this), tokenAmount);
     }
 
-    function removeOrder(uint orderId) external roundIsTrade roundIsGoing {
+    function removeOrder(uint orderId) external roundIsTrade tradeRoundIsGoing {
         Order storage order = orders[orderId];
         address orderOwner = order.owner;
         uint amount = order.amountToken;
@@ -148,10 +181,13 @@ contract ACDMPlatform {
         require(amount > 0, "Order doesnt exist");
 
         order.amountToken = 0;
+
+        emit OrderRemoved(orderId);
+
         token.transfer(msg.sender, amount);
     }
 
-    function redeemOrder(uint orderId) external payable roundIsTrade roundIsGoing {
+    function redeemOrder(uint orderId) external payable roundIsTrade tradeRoundIsGoing {
         Order storage order = orders[orderId];
         uint amountOrderToken = order.amountToken;
         require(amountOrderToken > 0, "Order doesnt exist");
@@ -166,6 +202,8 @@ contract ACDMPlatform {
 
         order.amountToken -= amountToken;
         currentSaleVolumeWei += amountWei;
+
+        emit OrderRedeemed(orderId, amountToken);
         
         token.transfer(msg.sender, amountToken);
 
