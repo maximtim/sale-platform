@@ -26,8 +26,8 @@ export async function expectTuple(txRes : Promise<any[]>, ...args : any[]) {
 export async function loggedSafeExecTx(contract : Contract, funcName : string, ...args : any[]) {
   console.log("Starting", funcName, ":");
   
-  await contract.callStatic[funcName](...args);
-  console.log("Callstatic success");
+  const results = await contract.callStatic[funcName](...args);
+  console.log("Callstatic success:", results);
 
   const txRes = await execTx(contract.functions[funcName](...args));
   console.log("Gas:", txRes.gasUsed.toString());

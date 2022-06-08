@@ -10,7 +10,7 @@ dotenv.config();
 
 
 async function main() {
-  await deployLogged(hre, "DAO", process.env.CHAIRPERSON, parseUnits("1000", 18), time.duration.days(3));
+  await deployLogged(hre, "DAO", await ethers.provider.getSigner().getAddress(), parseUnits("1000", 18), time.duration.days(3));
 }
 
 // We recommend this pattern to be able to use async/await everywhere

@@ -4,10 +4,9 @@ import { loggedSafeExecTx } from "../../lib/helpers";
 
 dotenv.config();
 
-task("platform-register", "Register referrer")
-    .addParam("referrer", "Address of referrer")
-    .setAction(async ({referrer}, hre) => {
+task("platform-start-trade", "Start trade round (for admin)")
+    .setAction(async ({}, hre) => {
         const platform = await hre.ethers.getContractAt("ACDMPlatform", process.env.ACDM_PLATFORM ?? "");
 
-        await loggedSafeExecTx(platform, "register", referrer);
+        await loggedSafeExecTx(platform, "startTradeRound");
     });
