@@ -109,7 +109,7 @@ contract ACDMPlatform {
     function startSaleRound() external only(owner) roundIsTradeOrNone tradeRoundEnded {
 
         if (currentRound > 0) {
-            currentSalePriceWei = currentSalePriceWei/100*103 + 4*10**13;
+            currentSalePriceWei = currentSalePriceWei/100*103 + 4*10**6;
         }
 
         currentRound = 1;
@@ -276,6 +276,7 @@ contract ACDMPlatform {
         uint[] memory amountsOut = uniswap.getAmountsOut(bank, path);
         uint amountOutMin = amountsOut[1] * (100 - slippagePercent) / 100;
 
+        tradeCommissionBank = 0;
         uint[] memory amounts = uniswap.swapExactETHForTokens{value: bank}(amountOutMin, path, address(this), deadline);
         token_.burn(amounts[1]);
     }
